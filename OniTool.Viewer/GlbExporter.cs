@@ -98,9 +98,11 @@ namespace OniTool.Core
                 });
                 return Accessors.Count - 1;
             }
+
+            public int AddRaw(byte[] data) => AddView(data, null);
         }
 
-        public static void ExportGlb(ParsedMesh mesh, string outPath, int lod = 0, IReadOnlyList<MotClip>? anims = null)
+        public static void ExportGlb(ParsedMesh mesh, string outPath, int lod = 0, IReadOnlyList<MotClip>? anims = null, IReadOnlyDictionary<int, byte[]>? materialTextures = null)
         {
             var b = new BinBuilder();
             var nodes = new List<Dictionary<string, object>>();
@@ -252,6 +254,38 @@ namespace OniTool.Core
                 ["primitives"] = primitives,
             };
 
+            // ---- embedded textures ----
+            var images = new List<object>();
+            var textures = new List<object>();
+            var texSamplers = new List<object>();
+            if (materialTextures != null && materialTextures.Count > 0)
+            {
+                texSamplers.Add(new Dictionary<string, object>
+                {
+                    ["magFilter"] = 9729,
+                    ["minFilter"] = 9987,
+                    ["wrapS"] = 10497,
+                    ["wrapT"] = 10497,
+                });
+                var pngToTex = new Dictionary<string, int>();
+                foreach (var kv in materialTextures)
+                {
+                    int matIdx = kv.Key;
+                    byte[] png = kv.Value;
+                    if (matIdx < 0 || matIdx >= materials.Count || png == null || png.Length == 0) continue;
+
+                    int bv = b.AddRaw(png);
+                    int imgIdx = images.Count;
+                    images.Add(new Dictionary<string, object> { ["bufferView"] = bv, ["mimeType"] = "image/png" });
+                    int texIdx = textures.Count;
+                    textures.Add(new Dictionary<string, object> { ["sampler"] = 0, ["source"] = imgIdx });
+
+                    var pbr = (Dictionary<string, object>)materials[matIdx]["pbrMetallicRoughness"];
+                    pbr["baseColorTexture"] = new Dictionary<string, object> { ["index"] = texIdx };
+                    pbr["baseColorFactor"] = new float[] { 1f, 1f, 1f, 1f };
+                }
+            }
+
             // mesh node
             var meshNode = new Dictionary<string, object> { ["name"] = "meshNode", ["mesh"] = 0 };
             if (skinIndex.HasValue) meshNode["skin"] = 0;
@@ -279,6 +313,12 @@ namespace OniTool.Core
             };
             if (skinIndex.HasValue && _pendingSkin != null)
                 gltf["skins"] = new List<object> { _pendingSkin };
+            if (images.Count > 0)
+            {
+                gltf["images"] = images;
+                gltf["textures"] = textures;
+                gltf["samplers"] = texSamplers;
+            }
 
             // ---- animations ----
             if (anims != null && anims.Count > 0 && skel != null)

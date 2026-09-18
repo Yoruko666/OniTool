@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:#2b2b2b;font-family:Segoe UI,Arial,sans-serif;color:#ddd;overflow:hidden;}
+  #wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+        background-color:#2b2b2b;
+        background-image:linear-gradient(45deg,#333 25%,transparent 25%),linear-gradient(-45deg,#333 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#333 75%),linear-gradient(-45deg,transparent 75%,#333 75%);
+        background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0;}
+  #img{max-width:100%;max-height:100%;image-rendering:auto;}
+  #msg{position:absolute;bottom:8px;left:8px;color:#9c9;font-size:12px;z-index:10;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:4px;}
+</style>
+</head>
+<body>
+<div id="wrap"><img id="img"></div>
+<div id="msg"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const src = params.get('src');
+  const w = params.get('w'), h = params.get('h');
+  const img = document.getElementById('img');
+  const msg = document.getElementById('msg');
+  if (src) img.src = src;
+  img.onload = () => { msg.textContent = `${w}×${h}`; };
+  img.onerror = () => { msg.textContent = '图片加载失败'; };
+</script>
+</body>
+</html>

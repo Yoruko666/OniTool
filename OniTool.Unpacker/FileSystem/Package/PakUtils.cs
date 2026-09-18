@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -6,6 +6,23 @@ namespace REE.Unpacker
 {
     class PakUtils
     {
+        // RE Engine appends a resource-version number to the name (foo.mesh.260209350).
+        // Strip the trailing ".<digits>" so output keeps only the real extension (foo.mesh).
+        public static String iStripVersionSuffix(String m_FileName)
+        {
+            Int32 dwDot = m_FileName.LastIndexOf('.');
+            if (dwDot > 0 && dwDot < m_FileName.Length - 1)
+            {
+                Boolean bAllDigits = true;
+                for (Int32 i = dwDot + 1; i < m_FileName.Length; i++)
+                {
+                    if (!Char.IsDigit(m_FileName[i])) { bAllDigits = false; break; }
+                }
+                if (bAllDigits) return m_FileName.Substring(0, dwDot);
+            }
+            return m_FileName;
+        }
+
         private static List<Byte[]> m_Chunks = new List<Byte[]>();
         public static List<Byte[]> iReadByChunks(FileStream TPakStream, Int64 dwSize, Int32 dwMaxChunkSize = 1048576)
         {

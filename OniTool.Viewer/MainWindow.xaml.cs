@@ -1,4 +1,4 @@
-﻿﻿using System.IO;
+﻿﻿﻿﻿﻿﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -14,6 +14,7 @@ public partial class MainWindow : Window
 
     ParsedMesh? _mesh;
     string? _meshPath;
+    Dictionary<int, byte[]>? _texMap;
     int _glbCounter;
     readonly MediaPlayer _player = new();
     string? _lastWav;
@@ -105,16 +106,22 @@ public partial class MainWindow : Window
 
         try
         {
-            if (name.Contains(".mesh.", StringComparison.OrdinalIgnoreCase))
+            if (IsType(name, ".mesh"))
                 await LoadMesh(path);
-            else if (name.Contains(".motlist.", StringComparison.OrdinalIgnoreCase)
-                     || name.Contains(".mot.", StringComparison.OrdinalIgnoreCase))
+            else if (IsType(name, ".motlist") || IsType(name, ".mot"))
                 await LoadMotlist(path);
+            else if (IsType(name, ".tex"))
+                await LoadTexture(path);
             else if (AudioConverter.IsAudio(path))
                 await LoadAudio(path);
         }
         catch (Exception ex) { SetStatus("失败: " + ex.Message); }
     }
+
+    // Matches both stripped names (foo.mesh) and versioned names (foo.mesh.260209350).
+    static bool IsType(string name, string ext) =>
+        name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ||
+        name.Contains(ext + ".", StringComparison.OrdinalIgnoreCase);
 
     // ---------------- model / animation ----------------
 
@@ -123,10 +130,12 @@ public partial class MainWindow : Window
         SetStatus("解析模型…");
         var mesh = await Task.Run(() => MeshReader.Read(path));
         _mesh = mesh; _meshPath = path;
+        _texMap = await Task.Run(() => BuildMaterialTextures(mesh, path));
         var glb = await Task.Run(() => ExportGlb(mesh, null));
         NavigateGlb(glb);
         int bones = mesh.Skeleton?.Bones.Count ?? 0;
-        SetStatus($"模型: {Path.GetFileName(path)} · LOD0 · 骨骼 {bones} · 已选模型可叠加动作");
+        int tex = _texMap?.Count ?? 0;
+        SetStatus($"模型: {Path.GetFileName(path)} · LOD0 · 骨骼 {bones} · 贴图 {tex} · 已选模型可叠加动作");
     }
 
     async Task LoadMotlist(string path)
@@ -147,13 +156,136 @@ public partial class MainWindow : Window
         // clean older previews
         foreach (var old in Directory.EnumerateFiles(AssetDir, "preview_*.glb"))
             if (old != outPath) try { File.Delete(old); } catch { }
-        GlbExporter.ExportGlb(mesh, outPath, 0, anims);
+        GlbExporter.ExportGlb(mesh, outPath, 0, anims, _texMap);
         return Path.GetFileName(outPath);
+    }
+
+    // Resolve albedo textures for each material by reading the sibling .mdf2 file.
+    Dictionary<int, byte[]>? BuildMaterialTextures(ParsedMesh mesh, string meshPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(meshPath)!;
+            var baseName = Path.GetFileName(meshPath);
+            baseName = StripVer(baseName);
+            if (baseName.EndsWith(".mesh", StringComparison.OrdinalIgnoreCase))
+                baseName = baseName.Substring(0, baseName.Length - 5);
+
+            string? mdfPath = null;
+            foreach (var f in Directory.EnumerateFiles(dir, baseName + ".mdf2*"))
+            { mdfPath = f; break; }
+            if (mdfPath == null) return null;
+
+            var mats = MdfReader.Read(mdfPath);
+            if (mats.Count == 0) return null;
+
+            // stm root (mdf tex paths are relative to natives/stm/)
+            int si = meshPath.IndexOf(@"\stm\", StringComparison.OrdinalIgnoreCase);
+            string stmRoot = si >= 0 ? meshPath.Substring(0, si + 5) : dir;
+
+            var byName = new Dictionary<string, MdfMaterial>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mm in mats) if (!byName.ContainsKey(mm.Name)) byName[mm.Name] = mm;
+
+            var pngCache = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<int, byte[]>();
+
+            for (int i = 0; i < mesh.MaterialNames.Count; i++)
+            {
+                MdfMaterial? mm = null;
+                if (!byName.TryGetValue(mesh.MaterialNames[i], out mm))
+                    if (i < mats.Count) mm = mats[i]; // fallback by order
+                if (mm == null) continue;
+
+                var texPath = PickAlbedo(mm);
+                if (texPath == null) continue;
+
+                var full = ResolveTex(stmRoot, texPath);
+                if (full == null) continue;
+
+                if (!pngCache.TryGetValue(full, out var png))
+                {
+                    try { png = TexDecoder.EncodePng(TexDecoder.Decode(full)); }
+                    catch { png = null; }
+                    pngCache[full] = png;
+                }
+                if (png != null) result[i] = png;
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+        catch { return null; }
+    }
+
+    static string StripVer(string name)
+    {
+        int dot = name.LastIndexOf('.');
+        if (dot > 0 && dot < name.Length - 1)
+        {
+            bool digits = true;
+            for (int i = dot + 1; i < name.Length; i++) if (!char.IsDigit(name[i])) { digits = false; break; }
+            if (digits) return name.Substring(0, dot);
+        }
+        return name;
+    }
+
+    static string? PickAlbedo(MdfMaterial mm)
+    {
+        string? first = null;
+        foreach (var t in mm.Textures)
+        {
+            if (string.IsNullOrEmpty(t.Path)) continue;
+            first ??= t.Path;
+            var ty = t.Type.ToLowerInvariant();
+            if (ty.Contains("basecolor") || ty.Contains("albedo") || ty.Contains("basemap")
+                || ty.Contains("diffuse") || ty.Contains("basemetal") || ty.Contains("basedielectric"))
+                return t.Path;
+        }
+        foreach (var t in mm.Textures)
+        {
+            if (string.IsNullOrEmpty(t.Path)) continue;
+            var pl = t.Path.ToLowerInvariant();
+            if (pl.Contains("albd") || pl.Contains("albedo") || pl.Contains("basecolor")) return t.Path;
+        }
+        return first;
+    }
+
+    static string? ResolveTex(string stmRoot, string mdfPath)
+    {
+        var rel = StripVer(mdfPath.Replace('/', '\\').TrimStart('\\'));
+        var full = Path.Combine(stmRoot, rel);
+        if (File.Exists(full)) return full;
+        var dir = Path.GetDirectoryName(full);
+        if (dir == null || !Directory.Exists(dir)) return null;
+        var fn = Path.GetFileName(full);
+        foreach (var f in Directory.EnumerateFiles(dir, fn + ".*")) return f;
+        return null;
     }
 
     void NavigateGlb(string glbFileName)
     {
         Web.CoreWebView2.Navigate($"https://{Host}/viewer.html?src={glbFileName}");
+    }
+
+    // ---------------- texture ----------------
+
+    int _texCounter;
+
+    async Task LoadTexture(string path)
+    {
+        SetStatus("解码贴图…");
+        var (file, w, h) = await Task.Run(() =>
+        {
+            var tex = TexDecoder.Decode(path);
+            int n = System.Threading.Interlocked.Increment(ref _texCounter);
+            var outName = $"preview_tex_{n}.png";
+            var outPath = Path.Combine(AssetDir, outName);
+            foreach (var old in Directory.EnumerateFiles(AssetDir, "preview_tex_*.png"))
+                if (old != outPath) try { File.Delete(old); } catch { }
+            TexDecoder.SavePng(tex, outPath);
+            return (outName, tex.Width, tex.Height);
+        });
+        Web.CoreWebView2.Navigate($"https://{Host}/image.html?src={file}&w={w}&h={h}");
+        SetStatus($"贴图: {Path.GetFileName(path)} · {w}×{h}");
     }
 
     // ---------------- audio ----------------

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.IO;
 using System.Collections.Generic;
 
@@ -127,6 +127,7 @@ namespace REE.Unpacker
                 foreach (var m_Entry in m_EntryTable)
                 {
                     String m_FileName = PakList.iGetNameFromHashList((UInt64)m_Entry.dwHashNameUpper << 32 | m_Entry.dwHashNameLower);
+                    if (m_FileName != null) m_FileName = PakUtils.iStripVersionSuffix(m_FileName);
 
                     if (m_Filter != null && (m_FileName == null || !m_FileName.ToLowerInvariant().Contains(m_Filter)))
                     {
