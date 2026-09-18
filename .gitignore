@@ -1,0 +1,42 @@
+# ---- Build output ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+bld/
+[Oo]ut/
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# ---- NuGet ----
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# ---- Misc ----
+*.log
+*.tmp
+*.cache
+_ReSharper*/
+[Tt]est[Rr]esults/
+
+# ---- OS ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# NOTE: OniTool.Unpacker/Projects/*.list and OniTool.Viewer/Assets/**
+# (vgmstream, model-viewer) are runtime-required data and are intentionally
+# tracked. Remove them here only if you distribute them separately.

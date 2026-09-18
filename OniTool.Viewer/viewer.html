@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:#2b2b2b;font-family:Segoe UI,Arial,sans-serif;color:#ddd;}
+  model-viewer{width:100%;height:100%;--poster-color:#2b2b2b;background:#2b2b2b;}
+  #bar{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:center;
+       background:rgba(0,0,0,.45);padding:6px 8px;border-radius:6px;z-index:10;flex-wrap:wrap;}
+  #bar select,#bar button{background:#3c3f41;color:#ddd;border:1px solid #555;border-radius:4px;padding:3px 8px;}
+  #msg{position:absolute;bottom:8px;left:8px;color:#9c9;font-size:12px;z-index:10;}
+  label{font-size:12px;}
+</style>
+<script type="module" src="bin/model-viewer.min.js"></script>
+</head>
+<body>
+<div id="bar">
+  <label>动画:</label>
+  <select id="anim"><option value="">(无)</option></select>
+  <button id="play">播放</button>
+  <button id="pause">暂停</button>
+  <label><input type="checkbox" id="wire"> 线框</label>
+</div>
+<model-viewer id="mv" camera-controls touch-action="pan-y" shadow-intensity="1"
+              exposure="1" environment-image="neutral" ar="false"></model-viewer>
+<div id="msg"></div>
+<script type="module">
+  const mv = document.getElementById('mv');
+  const sel = document.getElementById('anim');
+  const msg = document.getElementById('msg');
+  const params = new URLSearchParams(location.search);
+  const src = params.get('src');
+  if (src) mv.src = src;
+
+  mv.addEventListener('load', () => {
+    sel.innerHTML = '<option value="">(无)</option>';
+    const anims = mv.availableAnimations || [];
+    for (const a of anims) {
+      const o = document.createElement('option');
+      o.value = a; o.textContent = a; sel.appendChild(o);
+    }
+    msg.textContent = `已加载 · 动画 ${anims.length} 个`;
+    if (anims.length) { sel.value = anims[0]; mv.animationName = anims[0]; mv.play(); }
+  });
+  mv.addEventListener('error', (e) => { msg.textContent = '加载失败: ' + (e.detail?.type||''); });
+
+  sel.addEventListener('change', () => {
+    if (sel.value) { mv.animationName = sel.value; mv.play(); }
+    else { mv.pause(); }
+  });
+  document.getElementById('play').onclick = () => mv.play();
+  document.getElementById('pause').onclick = () => mv.pause();
+</script>
+</body>
+</html>
